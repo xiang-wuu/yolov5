@@ -18,7 +18,7 @@ from pathlib import Path
 from threading import Thread
 from urllib.parse import urlparse
 from zipfile import ZipFile
-
+from utils.classes import IMAGENET2012_CLASSES
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -83,7 +83,7 @@ def exif_transpose(image):
             5: Image.TRANSPOSE,
             6: Image.ROTATE_270,
             7: Image.TRANSVERSE,
-            8: Image.ROTATE_90,}.get(orientation)
+            8: Image.ROTATE_90, }.get(orientation)
         if method is not None:
             image = image.transpose(method)
             del exif[0x0112]
@@ -1095,6 +1095,55 @@ class HUBDatasetStats():
                 pass
         print(f'Done. All images saved to {self.im_dir}')
         return self.im_dir
+
+
+class BaseDatasetImageNet(Dataset):
+    def __init__(self, path, transform=None, max_len=0):
+        print("loading the dataset...")
+        self.transform = transform
+        self.max_len = max_len
+        self.host_input, self.X_target = self.make_dataset(path)
+
+    def __getitem__(self, pid):
+        inputs = self.host_input[pid]
+        targets = self.X_target[pid]
+
+        return inputs, targets
+
+    def make_dataset(self, dir):
+        host_input = []
+        X_target = []
+        num_total = 0
+        if not os.path.exists(dir):
+            print('path does not exist')
+
+        files_ls = os.listdir(dir)
+
+        for idx in tqdm(range(self.max_len)):
+            file = files_ls[idx]
+            tag_id = file.split("_")[3].split(".")[0]
+            target_id = list(IMAGENET2012_CLASSES.keys()).index(tag_id)
+            X_target.append(target_id)
+            host_input.append(self.prepare_img(dir + file))  # preprocess_image(dir+file, (224, 224)).cuda()
+            num_total += 1
+            if num_total == self.max_len:
+                break
+        return host_input, X_target
+
+    def __len__(self):
+        return len(self.host_input)
+
+    def prepare_img(self, path):
+        sample = self.pil_loader(path)
+        if self.transform is not None:
+            sample = self.transform(sample)
+        return sample
+
+    def pil_loader(self, path):
+        # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
+        with open(path, "rb") as f:
+            img = Image.open(f)
+            return img.convert("RGB")
 
 
 # Classification dataloaders -------------------------------------------------------------------------------------------
